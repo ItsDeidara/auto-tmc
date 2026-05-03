@@ -185,23 +185,31 @@ class Installer:
 
     @staticmethod
     def has_extract_script(install_dir: str) -> Tuple[bool, str]:
-        """Return (found, script_name) for any bundled extract script in install_dir."""
+        """Return (found, script_name) for any bundled extract script/executable in install_dir."""
         d = Path(install_dir)
-        for name in ("extract.bat", "extract.sh"):
+        # Check for asset_extractor (preferred), then fallback to extract scripts
+        for name in ("asset_extractor.exe", "asset_extractor", "extract.bat", "extract.sh"):
             if (d / name).exists():
                 return True, name
         return False, ""
 
     def run_extract_script(self, rom_path: str) -> bool:
-        """Run extract.bat (Windows native) or extract.sh (WSL) from the install directory.
+        """Run asset_extractor, extract.bat (Windows native) or extract.sh (WSL) from the install directory.
 
-        Ensures baserom.gba is in install_dir first, then runs the script.
-        The script writes assets/ into the install directory.
+        Ensures baserom.gba is in install_dir first, then runs the extraction tool.
+        The tool writes assets/ into the install directory.
         """
         rom_dest = self.install_dir / "baserom.gba"
         if rom_path and Path(rom_path).exists() and not rom_dest.exists():
             shutil.copy2(rom_path, rom_dest)
             self.on_status(f"Copied ROM → {rom_dest.name}")
+
+        # Check for asset_extractor first (preferred), then extract scripts
+        extractor = self.install_dir / "asset_extractor.exe"
+        if not extractor.exists():
+            extractor = self.install_dir / "asset_extractor"
+        if extractor.exists():
+            return self._run_extractor(extractor)
 
         bat = self.install_dir / "extract.bat"
         sh = self.install_dir / "extract.sh"
@@ -217,9 +225,94 @@ class Installer:
             return self._run_sh_wsl(sh)
 
         raise InstallError(
-            "No extract script found in the install directory.\n"
-            "Install a release that includes extract.bat or extract.sh."
+            "No extraction tool found in the install directory.\n"
+            "Install a release that includes asset_extractor, extract.bat, or extract.sh."
         )
+
+    def _run_extractor(self, exe: Path) -> bool:
+        import time
+        import threading
+
+        self.on_status(f"Running {exe.name} — this takes 1-2 minutes...")
+        start_time = time.time()
+        self.on_progress(0, "Starting asset extraction...")
+
+        # Use Popen to get realtime output
+        no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        process = subprocess.Popen(
+            [str(exe)],
+            cwd=str(self.install_dir),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            creationflags=no_window if sys.platform == "win32" else 0,
+        )
+
+        # Track progress and output in a separate thread
+        def monitor_process():
+            total_lines = 0
+            asset_count = 0
+            last_update = time.time()
+
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+
+                line = line.strip()
+                if line:
+                    total_lines += 1
+                    # Count assets being processed (look for common patterns)
+                    if any(keyword in line.lower() for keyword in ['extracting', 'processing', 'writing', 'creating']):
+                        asset_count += 1
+
+                    # Show the line in the log
+                    self.on_status(line)
+
+                    # Update progress based on time and activity
+                    elapsed = time.time() - start_time
+                    if elapsed > 2:  # Don't update too frequently
+                        # Estimate progress based on typical extraction patterns
+                        # Most extractions take 60-90 seconds, with progress accelerating
+                        if elapsed < 30:
+                            progress = min(20 + (elapsed / 30) * 30, 50)  # 20-50% in first 30s
+                        elif elapsed < 60:
+                            progress = min(50 + (elapsed - 30) / 30 * 30, 80)  # 50-80% in next 30s
+                        else:
+                            progress = min(80 + (elapsed - 60) / 30 * 20, 95)  # 80-95% after 60s
+
+                        # Estimate time remaining
+                        if progress > 5:
+                            total_estimated = elapsed / (progress / 100)
+                            remaining = max(0, total_estimated - elapsed)
+                            if remaining < 60:
+                                time_str = f"{remaining:.0f}s"
+                            else:
+                                time_str = f"{remaining/60:.1f}m"
+                            self.on_progress(int(progress), f"Extracting assets... ({time_str} remaining)")
+                        else:
+                            self.on_progress(int(progress), "Extracting assets...")
+
+            # Final progress update
+            self.on_progress(100, "Asset extraction complete")
+
+        # Start monitoring thread
+        monitor_thread = threading.Thread(target=monitor_process, daemon=True)
+        monitor_thread.start()
+
+        # Wait for process to complete with timeout
+        try:
+            process.wait(timeout=600)  # 10 minute timeout
+        except subprocess.TimeoutExpired:
+            process.kill()
+            raise InstallError(f"{exe.name} timed out after 10 minutes")
+
+        if process.returncode != 0:
+            raise InstallError(f"{exe.name} failed (exit {process.returncode})")
+
+        return True
 
     def _run_bat(self, bat: Path) -> bool:
         self.on_status(f"Running {bat.name} — this takes 1-2 minutes...")
