@@ -57,9 +57,9 @@ class GitHubAPI:
                 "name": name,
             }
 
-            if "windows-x86_64" in name:
+            if "windows" in name.lower():
                 windows_asset = info
-            elif "linux-x86_64" in name:
+            elif "linux" in name.lower():
                 linux_asset = info
 
         return {

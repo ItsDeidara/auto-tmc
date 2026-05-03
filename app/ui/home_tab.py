@@ -222,7 +222,7 @@ class HomeTab:
         )
         self._log_box.grid(row=1, column=0, sticky="nsew")
 
-        def _sync_log_height(_event: object | None = None) -> None:
+        def _sync_log_height(_event: Optional[object] = None) -> None:
             try:
                 self._log_container.update_idletasks()
                 total = self._log_container.winfo_height()
@@ -425,7 +425,7 @@ class HomeTab:
 
     def _update_prog(self, pct: int, msg: str):
         self._prog_bar.set(pct / 100)
-        self._prog_lbl.configure(text=f"{msg}  ({pct}%)")
+        self._prog_lbl.configure(text=f"{msg} ({pct}%)")
 
     def _on_status(self, msg: str):
         self.root.after(0, lambda m=msg: self._append_log(m))
