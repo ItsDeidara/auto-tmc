@@ -51,6 +51,8 @@ class Installer:
             self.on_status("Extracting files...")
             self._extract(tmp_path, self.install_dir)
 
+        self._finalize_permissions(self.install_dir)
+
         self.on_status("Installation complete.")
         self.on_progress(100, "Done")
         return self.install_dir
@@ -141,6 +143,22 @@ class Installer:
 
                 pct = 80 + int((i + 1) / total * 18)
                 self.on_progress(pct, f"Extracting {Path(name).name}")
+
+    @staticmethod
+    def _finalize_permissions(install_dir: Path):
+        """tarfile.extract(set_attrs=False) drops the exec bit. Restore it on
+        the shipped POSIX binaries so the game and extractor are runnable."""
+        if sys.platform.startswith("win"):
+            return
+        import stat
+        for name in ("tmc_pc", "asset_extractor"):
+            p = install_dir / name
+            if p.exists():
+                try:
+                    mode = p.stat().st_mode
+                    p.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                except OSError:
+                    pass
 
     @staticmethod
     def validate_rom(rom_path: str) -> Tuple[bool, str]:
