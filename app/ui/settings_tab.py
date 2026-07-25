@@ -1,4 +1,6 @@
 import os
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -181,14 +183,30 @@ class SettingsTab:
 
     def _open_folder(self):
         d = self.entry_dir.get() or self.config.get("install_dir", "")
-        if d and Path(d).exists():
-            os.startfile(d)
-        else:
+        if not (d and Path(d).exists()):
             messagebox.showinfo(
                 "Folder Not Found",
                 "Install directory not configured or does not exist.",
                 parent=self.root,
             )
+            return
+        try:
+            self._open_path(d)
+        except Exception as e:
+            messagebox.showerror(
+                "Open Folder", f"Could not open folder:\n{e}", parent=self.root
+            )
+
+    @staticmethod
+    def _open_path(path: str):
+        """Open a folder in the OS file manager, cross-platform.
+        os.startfile exists only on Windows."""
+        if sys.platform.startswith("win"):
+            os.startfile(path)  # type: ignore[attr-defined]
+        elif sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
 
     def _browse_rom(self):
         f = filedialog.askopenfilename(

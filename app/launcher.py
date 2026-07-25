@@ -1,7 +1,21 @@
+import stat
 import subprocess
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
+
+# tmc_pc.exe on Windows, bare tmc_pc elsewhere. Check both so a mismatched
+# install (e.g. a Linux tarball on a case-insensitive FS) still resolves.
+EXE_NAMES = ("tmc_pc.exe", "tmc_pc") if sys.platform.startswith("win") else ("tmc_pc", "tmc_pc.exe")
+
+
+def find_executable(install_dir) -> Optional[Path]:
+    d = Path(install_dir)
+    for name in EXE_NAMES:
+        exe = d / name
+        if exe.exists():
+            return exe
+    return None
 
 
 class GameLauncher:
@@ -9,8 +23,7 @@ class GameLauncher:
         self.install_dir = Path(install_dir)
 
     def get_executable(self) -> Optional[Path]:
-        exe = self.install_dir / "tmc_pc.exe"
-        return exe if exe.exists() else None
+        return find_executable(self.install_dir)
 
     def is_ready(self, check_rom: bool = True, check_assets: bool = True) -> Tuple[bool, str]:
         exe = self.get_executable()
@@ -37,12 +50,22 @@ class GameLauncher:
     def launch(self) -> subprocess.Popen:
         exe = self.get_executable()
         if not exe:
-            raise RuntimeError("tmc_pc.exe not found in install directory.")
+            raise RuntimeError("tmc_pc executable not found in install directory.")
+
+        # Archive extraction drops the exec bit on POSIX; restore it before launch.
+        if not sys.platform.startswith("win"):
+            try:
+                mode = exe.stat().st_mode
+                exe.chmod(mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            except OSError:
+                pass
 
         kwargs = {"cwd": str(self.install_dir)}
         if sys.platform == "win32":
             kwargs["creationflags"] = (
                 subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
             )
+        else:
+            kwargs["start_new_session"] = True
 
         return subprocess.Popen([str(exe)], **kwargs)

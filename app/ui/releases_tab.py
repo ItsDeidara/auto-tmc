@@ -8,7 +8,7 @@ import customtkinter as ctk
 from ..config import Config
 from ..database import Database
 from ..installer import InstallError, Installer
-from ..github_api import fetch_releases
+from ..github_api import fetch_releases, select_asset
 from ..utils import format_bytes, format_datetime
 
 C_SUCCESS = "#2ea44f"
@@ -171,6 +171,7 @@ class ReleasesTab:
         is_installed = tag == installed_ver
         win_size = release.get("windows_size") or 0
         lin_size = release.get("linux_size") or 0
+        mac_size = release.get("macos_size") or 0
 
         card = ctk.CTkFrame(
             self._list_frame, fg_color=C_CARD,
@@ -224,6 +225,8 @@ class ReleasesTab:
             sizes.append(f"Win {format_bytes(win_size)}")
         if lin_size:
             sizes.append(f"Linux {format_bytes(lin_size)}")
+        if mac_size:
+            sizes.append(f"macOS {format_bytes(mac_size)}")
         if sizes:
             ctk.CTkLabel(
                 content, text="  •  ".join(sizes),
@@ -295,10 +298,13 @@ class ReleasesTab:
         def task():
             try:
                 installer = Installer(install_dir=install_dir)
-                url = release.get("windows_url", "")
+                asset = select_asset(release)
+                url = asset["url"] or ""
                 if not url:
-                    raise InstallError("No Windows asset for this release.")
-                installer.download_and_install(url, release.get("windows_sha256"), tag)
+                    raise InstallError(
+                        "No download available for this platform in this release."
+                    )
+                installer.download_and_install(url, asset["sha256"], tag)
 
                 def commit_on_main() -> None:
                     try:

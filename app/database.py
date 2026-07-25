@@ -34,6 +34,9 @@ class Database:
                     linux_url TEXT,
                     linux_size INTEGER,
                     linux_sha256 TEXT,
+                    macos_url TEXT,
+                    macos_size INTEGER,
+                    macos_sha256 TEXT,
                     cached_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
 
@@ -61,6 +64,22 @@ class Database:
                     error_message TEXT
                 );
             """)
+                self._migrate(conn)
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection):
+        """Additive migrations for DBs created before newer columns existed.
+        SQLite has no ADD COLUMN IF NOT EXISTS, so a duplicate-column
+        OperationalError just means the migration already ran."""
+        for col, decl in (
+            ("macos_url", "TEXT"),
+            ("macos_size", "INTEGER"),
+            ("macos_sha256", "TEXT"),
+        ):
+            try:
+                conn.execute(f"ALTER TABLE releases ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass
 
     def upsert_release(self, release: Dict[str, Any]):
         with self._lock:
@@ -70,11 +89,13 @@ class Database:
                     INSERT INTO releases
                         (id, tag_name, release_name, published_at, is_prerelease, body,
                          windows_url, windows_size, windows_sha256,
-                         linux_url, linux_size, linux_sha256, cached_at)
+                         linux_url, linux_size, linux_sha256,
+                         macos_url, macos_size, macos_sha256, cached_at)
                     VALUES
                         (:id, :tag_name, :release_name, :published_at, :is_prerelease, :body,
                          :windows_url, :windows_size, :windows_sha256,
-                         :linux_url, :linux_size, :linux_sha256, :cached_at)
+                         :linux_url, :linux_size, :linux_sha256,
+                         :macos_url, :macos_size, :macos_sha256, :cached_at)
                     ON CONFLICT(tag_name) DO UPDATE SET
                         release_name=excluded.release_name,
                         published_at=excluded.published_at,
@@ -85,6 +106,9 @@ class Database:
                         linux_url=excluded.linux_url,
                         linux_size=excluded.linux_size,
                         linux_sha256=excluded.linux_sha256,
+                        macos_url=excluded.macos_url,
+                        macos_size=excluded.macos_size,
+                        macos_sha256=excluded.macos_sha256,
                         cached_at=excluded.cached_at
                     """,
                     release,

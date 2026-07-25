@@ -9,8 +9,8 @@ import customtkinter as ctk
 from ..config import Config
 from ..database import Database
 from ..installer import InstallError, Installer
-from ..launcher import GameLauncher
-from ..github_api import fetch_releases
+from ..launcher import GameLauncher, find_executable
+from ..github_api import fetch_releases, select_asset
 from ..utils import format_bytes, is_newer
 
 C_SUCCESS = "#2ea44f"
@@ -324,8 +324,8 @@ class HomeTab:
             self.lbl_path.configure(text=disp, text_color=C_DIM)
 
         if install_dir:
-            exe = Path(install_dir) / "tmc_pc.exe"
-            if exe.exists():
+            exe = find_executable(install_dir)
+            if exe:
                 self.lbl_exe.configure(text="✓ Found", text_color=C_SUCCESS)
             else:
                 self.lbl_exe.configure(text="✗ Not found — install first", text_color=C_ERROR)
@@ -499,13 +499,16 @@ class HomeTab:
         self._run_task(self._install_task, self._latest_release, install_dir)
 
     def _install_task(self, release: dict, install_dir: str):
-        url = release.get("windows_url")
-        sha256 = release.get("windows_sha256")
+        asset = select_asset(release)
+        url = asset["url"]
+        sha256 = asset["sha256"]
         tag = release.get("tag_name", "unknown")
-        size = release.get("windows_size") or 0
+        size = asset["size"] or 0
 
         if not url:
-            raise InstallError("No Windows asset found for this release.")
+            raise InstallError(
+                "No download available for this platform in the selected release."
+            )
 
         self._on_status(f"Installing {tag}  ({format_bytes(size)})...")
 
